@@ -1,2 +1,2 @@
 # convert-to-theWord
-Tools to convert different Bible formats into theWord's Bible module format
+Command line tools to convert different Bible formats into theWord's Bible module format.
