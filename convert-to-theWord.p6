@@ -25,6 +25,8 @@ my $ITS = "{$IMa}ITS{$IMb}";	# italics text
 my $ITE = "{$IMa}ITE{$IMb}";
 my $ALTS = "{$IMa}ALTS{$IMb}";	# alternate text
 my $ALTE = "{$IMa}ALTE{$IMb}";
+my $ALTVS = "{$IMa}ALTVS{$IMb}";	# alternate verse numbering
+my $ALTVE = "{$IMa}ALTVE{$IMb}";
 my $LABS = "{$IMa}LABS{$IMb}";	# label text
 my $LABE = "{$IMa}LABE{$IMb}";
 my $WOJS = "{$IMa}WOJS{$IMb}";	# words of Jesus
@@ -54,6 +56,7 @@ sub MAIN(
 	else {
 		warn "$input format is not recognized";
 	}
+	adjust-lxx-numbering();
 	emit-theWord();
 }
 
@@ -209,6 +212,35 @@ sub parse-usfx-xref($n)
 	       	'</ref>'
 		@$<target>@;
 	return $note;
+}
+
+# If exists PSA.9.38 we have LXX with non-KJV numbering.
+# LXX2012 does not have markup for alternate verse numbering.
+# Patch up %Found to convert to KJV numbering.
+# LXX Psa 9:21 - 146 numbering is different than KJV.
+# Map Psa 9:21-38 -> 10:1-18, and 10-146 -> 11-147,
+# and 147:1-9 -> 147:12-20.
+sub adjust-lxx-numbering()
+{
+	if not %Found{'PSA'}{9}{38}:exists or %Found{'PSA'}{147}{20}:exists {
+		warn "Not LXX numbering";
+		return;
+	}
+	warn "Have LXX numbering";
+	# Start from the end and work backward to avoid clobbering.
+	for 9 ... 1 -> $v {
+		%Found{'PSA'}{147}{$v+11} = "{$ALTVS}(147:$v)$ALTVE " ~ (%Found{'PSA'}{147}{$v}:delete);
+	}
+	for 146 ... 10 -> $c {
+		for %Found{'PSA'}{$c}.elems ... 1 -> $v {
+			%Found{'PSA'}{$c+1}{$v} = "{$ALTVS}($c:$v)$ALTVE " ~ (%Found{'PSA'}{$c}{$v}:delete);
+		}
+	}
+	for 9 ... 9 -> $c {
+		for 38 ... 21 -> $v {
+			%Found{'PSA'}{$c+1}{$v-20} = "{$ALTVS}($c:$v)$ALTVE " ~ (%Found{'PSA'}{$c}{$v}:delete);
+		}
+	}
 }
 
 sub emit-theWord()
