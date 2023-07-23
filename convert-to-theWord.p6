@@ -91,14 +91,22 @@ sub parse-usfx-book($book-abbr, $book-content)
 			my $chapter = $c;
 			$chapter ~~ s/ '<\/p>' $$ //;	# trailing </p> at very end of chapter.
 			while $chapter ~~ s,
-				'<v id="' \d+ <-["<>]>* '"' \s+
-				'bcv="' $<b>=(\w+) '.' $<c>=(\d+) '.' $<v>=(\d+) '"' \s* <-[<>]>* '/>' $<verse>=(.*?) '<ve' \s* '/>'
+				'<v id="' $<id>=(\d+ <-["<>]>*) '"' \s+
+				'bcv="' $<b>=(\w+) '.' $<c>=(\d+) '.' $<v>=(\d+) '"' \s* <-[<>/]>* '/>' $<verse>=(.*?)
+				'<ve' \s* '/>'
 				,, {
 					my $verse = $<verse>.Str;
+					my $id = $<id>.Str;
 					my $b = $<b>.Str;
 					my $c = $<c>.Str;
 					my $v = $<v>.Str;
-					#say "$b $c:$v $verse";
+					if ($id ne $v) {
+						$*ERR.say("$b $c:$v != $id");
+					}
+					if ($b eq "PSA" && $c == 118 && $v >= 175) {
+						# Debug missing 118:176.
+						$*ERR.say("$b $c:$v $verse");
+					}
 					$verse = parse-usfx-verse($b, $c, $v, $verse);
 					%Found{$b}{$c}{$v} ~= $verse ~ "\n";
 			}
@@ -199,7 +207,7 @@ sub parse-usfx-xref($n)
 	       	.*?
 	       	'</xo>'
 		@@;
-	# <ft>.*</ft> keep xref text without the markers.
+	# <xt>.*</xt> keep xref text without the markers.
 	$note ~~ s:g@
 		'<xt' <|w> <-[<>]>* '>'
 	       	$<text>=(.*?)
@@ -227,12 +235,29 @@ sub adjust-lxx-numbering()
 		return;
 	}
 	warn "Have LXX numbering";
+	# TODO Exo 28:24 or so, missing 4 verses in LXXE.
 	# Start from the end and work backward to avoid clobbering.
 	for 9 ... 1 -> $v {
 		%Found{'PSA'}{147}{$v+11} = "{$ALTVS}(147:$v)$ALTVE " ~ (%Found{'PSA'}{147}{$v}:delete);
 	}
 	for 146 ... 10 -> $c {
-		for %Found{'PSA'}{$c}.elems ... 1 -> $v {
+		if ($c == 118) {
+			$*ERR.say("PSA.$c has {%Found{'PSA'}{$c}.elems} verses, last is {%Found{'PSA'}{$c}.keys.max}");
+		}
+		for %Found{'PSA'}{$c}.keys.max ... 1 -> $v {
+			$*ERR.say("PSA.$c.$v");
+			if ($v >= 174) {
+				$*ERR.say("move PSA.$c.$v");
+			}
+			if (!$v.defined ) {
+				$*ERR.say("PSA.$c undefined verse $v");
+			}
+			elsif (%Found{'PSA'}{$c}:!exists) {
+				$*ERR.say("PSA.$c not found");
+			}
+			elsif (%Found{'PSA'}{$c}{$v}:!exists) {
+				$*ERR.say("PSA.$c:$v not found");
+			}
 			%Found{'PSA'}{$c+1}{$v} = "{$ALTVS}($c:$v)$ALTVE " ~ (%Found{'PSA'}{$c}{$v}:delete);
 		}
 	}
@@ -278,7 +303,10 @@ sub emit-epilog()
 sub emit-verse($book-abbr, $chapter-number, $verse-number)
 {
 	my $text = %Found{$book-abbr}{$chapter-number}{$verse-number};
-	$text = "(Any)" if !$text.defined;
+	if !$text.defined {
+		$text = "(Any)";
+		$*ERR.say("emit-verse missing $book-abbr $chapter-number:$verse-number");
+	}
 	$text ~~ s:g,\n, ,;
 	$text ~~ s:g,$NOTES (.*?) $NOTEE,<RF>{$0}<Rf>,;
 	$text ~~ s:g,$ADDS (.*?) $ADDE,<FI>{$0}<Fi>,;
@@ -300,8 +328,10 @@ sub translate-xref($xref-ref)
 {
 	#say "xref[$xref]";
 	my $xref = $xref-ref;
-	$xref ~~ s,^ (\w\w\w)\. ,{%BookAbbr2Index{$0}<pos>},;
+	$xref ~~ s,^\s+,,;
+	$xref ~~ s,^(\w\w\w)\.,{%BookAbbr2Index{$0}}.,;
 	$xref ~~ s,\s+$,,;
+	warn "xref ($xref-ref) -> ($xref)";
 	return $xref;
 }
 
@@ -1999,7 +2029,7 @@ sub initialize()
 		'ont' => 31103,
 		};
 	#say "@BookVerseCount keys ordered ", @BookVerseCount.map: *.<short>;
-	for 1 .. @BookVerseCount.elems-1 -> $i {
+	for 1 .. @BookVerseCount.end -> $i {
 		%BookAbbr2Index{@BookVerseCount[$i]<short>} = $i;
 	}
 	#say "%BookAbbr2Index : ", %BookAbbr2Index;
