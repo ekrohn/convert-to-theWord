@@ -1,4 +1,4 @@
-#!/usr/bin/perl6
+#!/usr/bin/raku
 
 my %Found;	# book-abbr chap-number verse-number
 my @BookVerseCount;	# counts of verses in every (KJV) book of the Bible.
@@ -93,9 +93,12 @@ sub parse-usfx-book($book-abbr, $book-content)
 			#say "chapter content {$c.chars} : {$c.substr(0,30)}";
 			my $chapter = $c;
 			$chapter ~~ s/ '<\/p>' $$ //;	# trailing </p> at very end of chapter.
+			# TODO handle <ve/><v id="6-8" bcv="EXO.40.6-8"/>
+			# TODO handle <ve/><v id="10-11" bcv="EXO.40.10"/>
+			# handle normal <ve/><v id="10" bcv="EXO.40.10"/>
 			while $chapter ~~ s,
-				'<v id="' $<id>=(\d+ <-["<>]>*) '"' \s+
-				'bcv="' $<b>=(\w+) '.' $<c>=(\d+) '.' $<v>=(\d+) '"' \s* <-[<>/]>* '/>' $<verse>=(.*?)
+				'<v id="' $<id>=[\d+ <-["<>]>*] '"' \s+
+				'bcv="' $<b>=[\w+] '.' $<c>=[\d+] '.' $<v>=[\d+ <-["<>]>*] '"' \s* <-[<>/]>* '/>' $<verse>=[.*?]
 				'<ve' \s* '/>'
 				,, {
 					my $verse = $<verse>.Str;
@@ -103,8 +106,19 @@ sub parse-usfx-book($book-abbr, $book-content)
 					my $b = $<b>.Str;
 					my $c = $<c>.Str;
 					my $v = $<v>.Str;
+					my $ide = '';
+					my $ve = '';
+					if $id ~~ s,\- $<ide>=[\d+]$,, {
+						$ide = $<ide>.Str;
+					}
+					if $v ~~ s,\- $<ve>=[\d+]$,, {
+						$ve = $<ve>.Str;
+					}
 					if ($id ne $v) {
 						$*ERR.say("$b $c:$v != $id");
+					}
+					if $ide ne "" or $ve ne "" {
+						$*ERR.say("$b $c:$v-$ve and $id-$ide");
 					}
 					if ($b eq "PSA" && $c == 118 && $v >= 175) {
 						# Debug missing 118:176.
@@ -112,6 +126,9 @@ sub parse-usfx-book($book-abbr, $book-content)
 					}
 					$verse = parse-usfx-verse($b, $c, $v, $verse);
 					%Found{$b}{$c}{$v} ~= $verse ~ "\n";
+			}
+			if $chapter ~~ m, '<v ' $<content>=[<-[<>]>*] '/>' , {
+				$*ERR.say("<v with unparsed content: $<content>");
 			}
 		}
 		else {
@@ -249,7 +266,7 @@ sub adjust-lxx-numbering()
 			$*ERR.say("PSA.$c has {%Found{'PSA'}{$c}.elems} verses, last is {%Found{'PSA'}{$c}.keys.max}");
 		}
 		for %Found{'PSA'}{$c}.keys.max ... 1 -> $v {
-			$*ERR.say("PSA.$c.$v");
+			# $*ERR.say("PSA.$c.$v");
 			if ($v >= 174) {
 				$*ERR.say("move PSA.$c.$v");
 			}
