@@ -239,6 +239,7 @@ sub adjust-lxx-numbering()
 	}
 	warn "Have LXX numbering";
 	# TODO Exo 28:24 or so, missing 4 verses in LXXE.
+	# TODO JOS.9.27-29 through JOS.9.33, KJV has only through v27.
 	# Start from the end and work backward to avoid clobbering.
 	for 9 ... 1 -> $v {
 		%Found{'PSA'}{147}{$v+11} = "{$ALTVS}(147:$v)$ALTVE " ~ (%Found{'PSA'}{147}{$v}:delete);
@@ -2086,6 +2087,14 @@ sub initialize()
 	#say "@BookVerseCount keys ordered ", @BookVerseCount.map: *.<short>;
 	for 1 .. @BookVerseCount.end -> $i {
 		%BookAbbr2Index{@BookVerseCount[$i]<short>} = $i;
+		my $full = @BookVerseCount[$i]<full>;
+		%BookAbbr2Index{$full} = $i;
+		$full = $full.uc;
+		%BookAbbr2Index{$full} = $i;
+		$full ~~ s:g/\s+//;
+		%BookAbbr2Index{$full} = $i;
+		$full = $full.substr(0,3);
+		%BookAbbr2Index{$full} = $i;
 	}
 	#say "%BookAbbr2Index : ", %BookAbbr2Index;
 	#@EmitBookOrder = sort { $BookVerseCount{$a}{pos} <=> $BookVerseCount{$b}{pos} } grep (!/^\./, keys %{$BookVerseCount});
