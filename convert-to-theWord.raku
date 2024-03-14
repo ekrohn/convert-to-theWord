@@ -317,22 +317,74 @@ sub emit-verse($book-abbr, $chapter-number, $verse-number)
 	$text ~~ s:g,$VPS (.*?) $VPE,<FU>{$0}<Fu>,;	# published verse #
 	$text ~~ s:g,$PE $PS,<CM>,;
 	$text ~~ s:g,$LINEBREAK,<CM>,;
-	$text ~~ s:g,$XREFS (.*?) $XREFE,<RX {translate-xref($0)}>,;
+	$text ~~ s:g,$XREFS (.*?) $XREFE,{translate-xref($0, '<RX ', '>')},;
 	$text ~~ s:g,'  '+, ,;
 	#say " ($book-abbr $chapter-number:$verse-number) $text";
 	say $text;
 }
 
-# translate xref from DEU.10.15 to 5.10.15
-sub translate-xref($xref-ref)
+# translate xref from {DEU.10.15 , Deu 10. 15.} to 5.10.15
+# TODO Heb 12 29.
+# TODO </xo><xt>Matt 15. 4. Eph 6. 1. </xt></x>
+# TODO 1 Cor 10. 26, 28.
+sub translate-xref($xref-ref, $element-start, $element-end)
 {
-	#say "xref[$xref]";
 	my $xref = $xref-ref;
-	$xref ~~ s,^\s+,,;
-	$xref ~~ s,^(\w\w\w)\.,{%BookAbbr2Index{$0}}.,;
-	$xref ~~ s,\s+$,,;
-	warn "xref ($xref-ref) -> ($xref)";
-	return $xref;
+	#say "xref[$xref]";
+	my $result = '';
+	while $xref ne "" {
+		if $xref ~~ s,^\s+,, {
+			next;
+		}
+		elsif $xref ~~ s,^\;,, {
+			next;
+		}
+		elsif $xref ~~ s,^also \s+,, {
+			next;
+		}
+		elsif $xref ~~ s,^$<book>=[[\d \s+]? <[A..Z]>\w\w*] $dot-or-space 
+			$<chapter>=[\d+] $dot-or-colon-or-space
+			$<verse>=[\d+] 
+			[\s* $<range-sep>=<[-,]> \s* $<range-end>=\d+]? $dot-or-space? ,, {
+		}
+		else {
+			warn "xref cannot parse book chapter. verses. from <$xref> from <$xref-ref>";
+			last;
+		}
+		my $book = $<book>.Str.uc;
+		my $chapter = $<chapter>.Str;
+		my $verse = $<verse>.Str;
+		my $range-sep = $<range-sep>:exists ?? $<range-sep>.Str !! "";
+		my $range-end = $<range-end>:exists ?? $<range-end>.Str !! "";
+		$book ~~ s:g/\s+//;
+		my $booknum;
+		if %BookAbbr2Index{$book}:exists {
+			$booknum = %BookAbbr2Index{$book};
+		}
+		elsif %BookAbbr2Index{$book.substr(0,4)}:exists {
+			$booknum = %BookAbbr2Index{$book.substr(0,4)};
+		}
+		elsif %BookAbbr2Index{$book.substr(0,3)}:exists {
+			$booknum = %BookAbbr2Index{$book.substr(0,3)};
+		}
+		else {
+			warn "xref no book number found for $book in $xref-ref";
+		}
+		my $new-xref = "$booknum.$chapter.$verse";
+		if $range-sep eq "-" {
+			$new-xref ~= "-$range-end";
+		}
+		elsif $range-sep eq "," && $verse.Int + 1 == $range-end.Int {
+			# Treat Rom 4. 7,8 like Rom 4. 7-8.
+			$new-xref ~= "-$range-end";
+		}
+		elsif $range-sep || $range-end {
+			warn "xref must deal with range $range-sep $range-end for <$xref> from <$xref-ref>";
+		}
+		$*ERR.say: "xref ($xref-ref) -> ($new-xref)";
+		$result ~= $element-start ~ $new-xref ~ $element-end;
+	}
+	return $result;
 }
 
 sub parse-meta($filename)
