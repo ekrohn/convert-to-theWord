@@ -8,6 +8,9 @@ my @EmitBookOrder;	# set after @BookVerseCount is populated
 my %Emit;	# book-abbr chap-number verse-number
 my %MetaData;	# book metadata, if we find it
 
+my $dot-or-space = rx,[\s+ || \. \s* ],;
+my $dot-or-colon-or-space = rx,[\s* <[.:\s]> \s*],;
+
 # Internal Markup start and stop characters.
 # As we convert from <XML> or <HTML>, we need our own markup using a different
 # delimiter. Pick «» ($IMa and $IMb).
@@ -201,7 +204,7 @@ sub parse-usfx-footnote($fn)
 sub parse-usfx-xref($n)
 {
 	my $note = $n;
-	# <xo>.*</xo> remove xref reference
+	# <xo>.*</xo> remove xref source reference
 	$note ~~ s:g@
 		'<xo' <|w> <-[<>]>* '>'
 	       	.*?
@@ -219,7 +222,7 @@ sub parse-usfx-xref($n)
 	       	.*?
 	       	'</ref>'
 		@$<target>@;
-	return $note;
+	return $note.trim;
 }
 
 # If exists PSA.9.38 we have LXX with non-KJV numbering.
