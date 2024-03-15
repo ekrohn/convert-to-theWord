@@ -255,6 +255,8 @@ sub adjust-lxx-numbering()
 		return;
 	}
 	warn "Have LXX numbering";
+	# TODO This patch-up is after the fact; I think it would be better done
+	# at parsing time.
 	# TODO Exo 28:24 or so, missing 4 verses in LXXE.
 	# TODO JOS.9.27-29 through JOS.9.33, KJV has only through v27.
 	# Start from the end and work backward to avoid clobbering.
@@ -401,6 +403,10 @@ sub translate-xref($xref-ref, $element-start, $element-end)
 		elsif $range-sep eq "," && $verse.Int + 1 == $range-end.Int {
 			# Treat Rom 4. 7,8 like Rom 4. 7-8.
 			$new-xref ~= "-$range-end";
+		}
+		elsif $range-sep eq "," {
+			# Split into two separate xrefs.
+			$new-xref ~= $element-end ~ $element-start ~ "$booknum.$chapter.$range-end";
 		}
 		elsif $range-sep || $range-end {
 			warn "xref must deal with range $range-sep $range-end for <$xref> from <$xref-ref>";
