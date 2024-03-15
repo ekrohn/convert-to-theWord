@@ -272,12 +272,15 @@ sub adjust-lxx-numbering()
 			}
 			if (!$v.defined ) {
 				$*ERR.say("PSA.$c undefined verse $v");
+				next;
 			}
 			elsif (%Found{'PSA'}{$c}:!exists) {
 				$*ERR.say("PSA.$c not found");
+				next;
 			}
 			elsif (%Found{'PSA'}{$c}{$v}:!exists) {
 				$*ERR.say("PSA.$c:$v not found");
+				next;
 			}
 			%Found{'PSA'}{$c+1}{$v} = "{$ALTVS}($c:$v)$ALTVE " ~ (%Found{'PSA'}{$c}{$v}:delete);
 		}
@@ -1649,6 +1652,7 @@ sub initialize()
 		{
 			"full" => "Matthew",
 			"short" => "MAT",
+			"shorter" => "Mt",
 			"pos" => 40,
 			"chapters" => 28,
 			"verses" => 1071,
@@ -1738,6 +1742,7 @@ sub initialize()
 		{
 			"full" => "John",
 			"short" => "JHN",
+			"shorter" => "Jno",
 			"pos" => 43,
 			"chapters" => 21,
 			"verses" => 879,
@@ -1801,6 +1806,7 @@ sub initialize()
 		{
 			"full" => "Romans",
 			"short" => "ROM",
+			"shorter" => "Ro",
 			"pos" => 45,
 			"chapters" => 16,
 			"verses" => 434,
@@ -2104,6 +2110,10 @@ sub initialize()
 	#say "@BookVerseCount keys ordered ", @BookVerseCount.map: *.<short>;
 	for 1 .. @BookVerseCount.end -> $i {
 		%BookAbbr2Index{@BookVerseCount[$i]<short>} = $i;
+		if @BookVerseCount[$i]<shorter>:exists {
+			%BookAbbr2Index{@BookVerseCount[$i]<shorter>} = $i;
+			%BookAbbr2Index{@BookVerseCount[$i]<shorter>.uc} = $i;
+		}
 		my $full = @BookVerseCount[$i]<full>;
 		%BookAbbr2Index{$full} = $i;
 		$full = $full.uc;
