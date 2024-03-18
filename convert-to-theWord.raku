@@ -389,6 +389,10 @@ sub translate-xref($xref-ref, $element-start, $element-end)
 		elsif %BookAbbr2Index{$book.substr(0,3)}:exists {
 			$booknum = %BookAbbr2Index{$book.substr(0,3)};
 		}
+		# Special case for bug in <xt>: 2 Rom and 2 Rev.
+		elsif $book ~~ /^2 $<book>=(Rom||Rev)$/ && %BookAbbr2Index{$<book>.Str.substr(0,3)}:exists {
+			$booknum = %BookAbbr2Index{$<book>.Str.substr(0,3)};
+		}
 		else {
 			warn "xref no book number found for $book in $xref-ref";
 		}
