@@ -149,9 +149,9 @@ sub parse-usfx-verse(Str $book-abbr, $chapter-number, $verse-number, Str $v)
 	       	$<text>=(.*?)
 	       	'</it>'
 		@$ITS$<text>$ITE@;
-	$verse ~~ s:g@ '<b' \s* '/>' @@;
+	$verse ~~ s:g@ '<b' <|w> <-[<>]>* '/>' @@;	# empty bold
 	$verse ~~ s:g@
-		'</p>' \s* '<p>'
+		'</p>' \s* '<p' <|w> <-[<>]>* '>'
 		@$PE$PS@;
 	$verse ~~ s:g@
 		'<vp' <|w> <-[<>]>* '>'
