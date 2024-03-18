@@ -120,10 +120,6 @@ sub parse-usfx-book($book-abbr, $book-content)
 					if $ide ne "" or $ve ne "" {
 						$*ERR.say("$b $c:$v-$ve and $id-$ide");
 					}
-					if ($b eq "PSA" && $c == 118 && $v >= 175) {
-						# Debug missing 118:176.
-						$*ERR.say("$b $c:$v $verse");
-					}
 					$verse = parse-usfx-verse($b, $c, $v, $verse);
 					%Found{$b}{$c}{$v} ~= $verse ~ "\n";
 			}
