@@ -7,6 +7,7 @@ my %BookAbbr2Index;	# map of book abbr to index into @BookVerseCount
 my @EmitBookOrder;	# set after @BookVerseCount is populated
 my %Emit;	# book-abbr chap-number verse-number
 my %MetaData;	# book metadata, if we find it
+my $Fix-LXX-numbering = False;
 
 my $dot-or-space = rx,[\s+ || \. \s* ],;
 my $dot-or-colon-or-space = rx,[\s* <[.:\s]> \s*],;
@@ -59,7 +60,6 @@ sub MAIN(
 	else {
 		warn "$input format is not recognized";
 	}
-	adjust-lxx-numbering();
 	emit-theWord();
 }
 
@@ -84,7 +84,6 @@ sub parse-usfx-book($book-abbr, $book-content)
 	#say "$book-abbr length={$book-content.chars}";
 	my $chapter-number;
 	for $book-content.split(/ '<c id="' \d+ '"' \s* '/>' /, :v) -> $c {
-		my $verse-number;
 		#say " c=$c";
 		if $c ~~ /^'<c' \s+ 'id="' $<num>=(\d+) '"' \s* '/>'/ {
 			$chapter-number = $<num>.Str;
@@ -93,18 +92,18 @@ sub parse-usfx-book($book-abbr, $book-content)
 			#say "chapter content {$c.chars} : {$c.substr(0,30)}";
 			my $chapter = $c;
 			$chapter ~~ s/ '<\/p>' $$ //;	# trailing </p> at very end of chapter.
+			# handle normal <ve/><v id="10" bcv="EXO.40.10"/>
 			# TODO handle <ve/><v id="6-8" bcv="EXO.40.6-8"/>
 			# TODO handle <ve/><v id="10-11" bcv="EXO.40.10"/>
-			# handle normal <ve/><v id="10" bcv="EXO.40.10"/>
 			while $chapter ~~ s,
 				'<v id="' $<id>=[\d+ <-["<>]>*] '"' \s+
 				'bcv="' $<b>=[\w+] '.' $<c>=[\d+] '.' $<v>=[\d+ <-["<>]>*] '"' \s* <-[<>/]>* '/>' $<verse>=[.*?]
 				'<ve' \s* '/>'
 				,, {
-					my $verse = $<verse>.Str;
-					my $id = $<id>.Str;
-					my $b = $<b>.Str;
-					my $c = $<c>.Str;
+					my Str $verse = $<verse>.Str;
+					my Str $id = $<id>.Str;
+					my Str $b = $<b>.Str;
+					my Int $c = $<c>.Int;
 					my $v = $<v>.Str;
 					my $ide = '';
 					my $ve = '';
@@ -120,7 +119,12 @@ sub parse-usfx-book($book-abbr, $book-content)
 					if $ide ne "" or $ve ne "" {
 						$*ERR.say("$b $c:$v-$ve and $id-$ide");
 					}
-					$verse = parse-usfx-verse($b, $c, $v, $verse);
+					if ($b eq "PSA" || $ve ne "" || $ide ne "") {
+						#$*ERR.say("$b $c.$v ");
+						($c, $v, $verse) = adjust-lxx-numbering($b, $c, $v, $ve, $id, $ide, $verse);
+						#$*ERR.say("-> $c.$v $verse");
+					}
+					$verse = parse-usfx-verse($verse);
 					%Found{$b}{$c}{$v} ~= $verse ~ "\n";
 			}
 			if $chapter ~~ m, '<v ' $<content>=[<-[<>]>*] '/>' , {
@@ -133,9 +137,10 @@ sub parse-usfx-book($book-abbr, $book-content)
 	}
 }
 
-sub parse-usfx-verse(Str $book-abbr, $chapter-number, $verse-number, Str $v)
+sub parse-usfx-verse(Str $v)
 {
 	my $verse = $v;
+	$verse ~~ s/'<ve' \s* '/></q><q style="q1">'//;	# ignore quote marker between verses
 	$verse ~~ s/'<ve' \s* '/>'//;
 	$verse ~~ s/\n $//;
 	# Convert to internal markup.
@@ -154,6 +159,9 @@ sub parse-usfx-verse(Str $book-abbr, $chapter-number, $verse-number, Str $v)
 		'</p>' \s* '<p' <|w> <-[<>]>* '>'
 		@$PE$PS@;
 	$verse ~~ s:g@
+		'</q><q style="q1">'
+		@$PE$PS@;	# quote marker elsewhere becomes line break
+	$verse ~~ s:g@
 		'<vp' <|w> <-[<>]>* '>'
 	       	$<text>=(.*?)
 	       	'</vp>'
@@ -161,11 +169,14 @@ sub parse-usfx-verse(Str $book-abbr, $chapter-number, $verse-number, Str $v)
 	$verse ~~ s:g@
 	       	'</q>' \s* '<q>'
 		@$LINEBREAK@;
+	# —to the  - put space after em-dash
+	# Replace emdash — with --
+	#$verse ~~ s:g@ '—' @--@;
 	$verse ~~ s:g[
 		'<f' <|w> <-[<>]>* '>'
 	       	$<footnote-body>=(.*?)
 	       	'</f>'
-	] = $NOTES ~ parse-usfx-footnote($<footnote-body>) ~ $NOTEE;
+	] = parse-usfx-footnote($<footnote-body>);
 	$verse ~~ s:g[
 		'<x' <|w> <-[<>]>* '>'
 	       	$<xref-body>=(.*?)
@@ -176,7 +187,7 @@ sub parse-usfx-verse(Str $book-abbr, $chapter-number, $verse-number, Str $v)
 
 sub parse-usfx-footnote($fn)
 {
-	my $footnote = $fn;
+	my $footnote = $NOTES ~ $fn ~ $NOTEE;
 	# <fr>.*</fr> remove footnote reference
 	$footnote ~~ s:g@
 		'<fr' <|w> <-[<>]>* '>'
@@ -205,13 +216,22 @@ sub parse-usfx-footnote($fn)
 	       	$<text>=(.*?)
 	       	'</fl>'
 		@$LABS$<text>$LABE@;
-	# <ref>.*</ref> discard target reference and keep text.
-	$footnote ~~ s:g@
-		'<ref' \s+ 'tgt="' $<target>=(<-[\""<>]>*) '">'
-	       	.*?
+	# If <ref>.*</ref> contains tgt, ignore it and keep ref text.
+	# TODO <RX> does not appear to work in footnotes, so move it outside.
+	#$*ERR.say("footnote=$footnote");
+	my $new-xrefs = '';
+	while $footnote ~~ s@
+		'<ref' \s+ 'tgt="' $<target>=[<-[\""<>]>*] '">'
+	       	$<text>=[.*?]
 	       	'</ref>'
-		@$<target>@;
-	return $footnote;
+		@$<text>@
+	{
+		#$*ERR.say("ref fn=$footnote\n", $<target>.raku);
+		#$*ERR.say("ref fn target=$<target> text=$<text>");
+		$new-xrefs ~= qq{<x><ref tgt="$<target>"></ref></x>};
+		#$*ERR.say("ref new fn xref=$new-xrefs");
+	}
+	return $footnote ~ $new-xrefs;
 }
 
 sub parse-usfx-xref($n)
@@ -229,7 +249,9 @@ sub parse-usfx-xref($n)
 	       	$<text>=(.*?)
 	       	'</xt>'
 		@$<text>@;
-	# <ref>.*</ref> discard target reference and keep text.
+	# If <ref>.*</ref> contains tgt, prefer that over the ref text.
+	# TODO 2024-03-21 text can have verse range that does not (yet) appear
+	# in tgt.
 	$note ~~ s:g@
 		'<ref' \s+ 'tgt="' $<target>=(<-[\""<>]>*) '">'
 	       	.*?
@@ -244,50 +266,48 @@ sub parse-usfx-xref($n)
 # LXX Psa 9:21 - 146 numbering is different than KJV.
 # Map Psa 9:21-38 -> 10:1-18, and 10-146 -> 11-147,
 # and 147:1-9 -> 147:12-20.
-sub adjust-lxx-numbering()
+# TODO Exo 28:24 or so, missing 4 verses in LXXE.
+# TODO JOS.9.27-29 through JOS.9.33, KJV has only through v27.
+sub adjust-lxx-numbering(Str $b, Int $c, $v, $ve, $id, $ide, Str $verse)
 {
-	if not %Found{'PSA'}{9}{38}:exists or %Found{'PSA'}{147}{20}:exists {
-		warn "Not LXX numbering";
-		return;
-	}
-	warn "Have LXX numbering";
-	# TODO This patch-up is after the fact; I think it would be better done
-	# at parsing time.
-	# TODO Exo 28:24 or so, missing 4 verses in LXXE.
-	# TODO JOS.9.27-29 through JOS.9.33, KJV has only through v27.
-	# Start from the end and work backward to avoid clobbering.
-	for 9 ... 1 -> $v {
-		%Found{'PSA'}{147}{$v+11} = "{$ALTVS}(147:$v)$ALTVE " ~ (%Found{'PSA'}{147}{$v}:delete);
-	}
-	for 146 ... 10 -> $c {
-		if ($c == 118) {
-			$*ERR.say("PSA.$c has {%Found{'PSA'}{$c}.elems} verses, last is {%Found{'PSA'}{$c}.keys.max}");
+	if $b eq 'PSA' {
+		$Fix-LXX-numbering = True if $c == 9 && $v > 20;
+		# PSA 9:21-38 -> PSA 10:1-18
+		if $c == 9 && $v > 20 {
+			#$*ERR.say("PSA.$c.$v -> {$c+1}.{$v-20}");
+			return $c+1, $v-20, "{$ALTVS}($c:$v)$ALTVE " ~ $verse;
 		}
-		for %Found{'PSA'}{$c}.keys.max ... 1 -> $v {
-			# $*ERR.say("PSA.$c.$v");
-			if ($v >= 174) {
-				$*ERR.say("move PSA.$c.$v");
-			}
-			if (!$v.defined ) {
-				$*ERR.say("PSA.$c undefined verse $v");
-				next;
-			}
-			elsif (%Found{'PSA'}{$c}:!exists) {
-				$*ERR.say("PSA.$c not found");
-				next;
-			}
-			elsif (%Found{'PSA'}{$c}{$v}:!exists) {
-				$*ERR.say("PSA.$c:$v not found");
-				next;
-			}
-			%Found{'PSA'}{$c+1}{$v} = "{$ALTVS}($c:$v)$ALTVE " ~ (%Found{'PSA'}{$c}{$v}:delete);
+		# PSA 10-146 -> PSA 11-147
+		if $c >= 10 && $c <= 146 {
+			#$*ERR.say("PSA.$c.$v -> {$c+1}.{$v}");
+			return $c+1, $v, "{$ALTVS}($c:$v)$ALTVE " ~ $verse;
+		}
+		# PSA 147:1-9 -> PSA 147:12-20
+		if $c == 147 && $v < 10 {
+			#$*ERR.say("PSA.$c.$v -> {$c}.{$v+11}");
+			return $c, $v+11, "{$ALTVS}($c:$v)$ALTVE " ~ $verse;
 		}
 	}
-	for 9 ... 9 -> $c {
-		for 38 ... 21 -> $v {
-			%Found{'PSA'}{$c+1}{$v-20} = "{$ALTVS}($c:$v)$ALTVE " ~ (%Found{'PSA'}{$c}{$v}:delete);
+	elsif $b eq 'GEN' {
+		# GEN 6:1a -> GEN 5:32
+		if $c == 147 && $v < 10 {
+			#$*ERR.say("PSA.$c.$v -> {$c}.{$v+11}");
+			return $c, $v+11, "{$ALTVS}($c:$v)$ALTVE " ~ $verse;
+		}
+		# GEN 6:2-22 -> GEN 6:1-21
+		# GEN 22:15 should split part to 22:16,
+		# then GEN 22:16-23 -> 22:17-24.
+		if $c == 22 && $v >= 16 {
+			#$*ERR.say("GEN.$c.$v -> {$c}.{$v+11}");
+			return $c, $v+1, "{$ALTVS}($c:$v)$ALTVE " ~ $verse;
 		}
 	}
+	if $ve eq "" && $ide ne "" {
+		# id="6-8" bcv="EXO.40.6" 
+		#$*ERR.say("ve=$ve ide=$ide -> ($c:$v-$ide)");
+		return $c, $v, "{$ALTVS}($c:$v-$ide)$ALTVE " ~ $verse;
+	}
+	return $c, $v, $verse;
 }
 
 sub emit-theWord()
@@ -364,7 +384,7 @@ sub translate-xref($xref-ref, $element-start, $element-end)
 		elsif $xref ~~ s,^also \s+,, {
 			next;
 		}
-		elsif $xref ~~ s,^$<book>=[[\d \s+]? <[A..Z]>\w\w*] $dot-or-space 
+		elsif $xref ~~ s,^$<book>=[[\d \s*]? <[A..Z]>\w\w*] $dot-or-space 
 			$<chapter>=[\d+] $dot-or-colon-or-space
 			$<verse>=[\d+] 
 			[\s* $<range-sep>=<[-,]> \s* $<range-end>=\d+]? $dot-or-space? ,, {
@@ -390,7 +410,7 @@ sub translate-xref($xref-ref, $element-start, $element-end)
 			$booknum = %BookAbbr2Index{$book.substr(0,3)};
 		}
 		# Special case for bug in <xt>: 2 Rom and 2 Rev.
-		elsif $book ~~ /^2 $<book>=(Rom||Rev)$/ && %BookAbbr2Index{$<book>.Str.substr(0,3)}:exists {
+		elsif $book ~~ /^2 $<book>=(ROM||REV)$/ and %BookAbbr2Index{$<book>.Str.substr(0,3)}:exists {
 			$booknum = %BookAbbr2Index{$<book>.Str.substr(0,3)};
 		}
 		else {
