@@ -346,7 +346,7 @@ sub emit-verse($book-abbr, $chapter-number, $verse-number)
 {
 	my $text = %Found{$book-abbr}{$chapter-number}{$verse-number};
 	if !$text.defined {
-		$text = "(Any)";
+		$text = "(Omitted)";
 		$*ERR.say("emit-verse missing $book-abbr $chapter-number:$verse-number");
 	}
 	$text ~~ s:g,\n, ,;
